@@ -80,33 +80,33 @@ html.calm *,html.calm *::before{animation:none!important;transition:none!importa
 var W=360,PH=12,BR=6,COLS=8,BW=40,BH=18,BX0=12,BY0=52,PX=42,PY=20,STEP=1/120,PADDLE_MAX=1700,BASE_PW=64,MAXANG=1.13,MINVY=0.26,DROP=0.14,MAXLIVES=5;
 /* '.' 빈칸 · 1·2·3 = 맞아야 하는 횟수 · '#' = 안 깨지는 벽돌 */
 var LEVELS=[
- ["11111111","11111111","11111111"],
+ ["11111111","11111111"],
  ["...11...","..1111..",".111111.","11111111"],
- ["22222222","11111111","11111111","11111111"],
- ["1.1.1.1.",".1.1.1.1","1.1.1.1.",".1.1.1.1","22222222"],
+ ["12222221","11111111","11111111"],
+ ["1.1.1.1.",".1.1.1.1","1.1.1.1.",".1.1.1.1","12222221"],
  ["11111111","1#1111#1","1#2222#1","1.1111.1"],
  ["...22...","..2112..",".211112.","21111112",".211112.","..2112..","...22..."],
  ["11111111","#..##..#","22222222","22222222","1.1111.1"],
  ["3......3","33.22.33","33211233","1.1111.1","11111111"],
  ["22222222","#.2222.#","#.2332.#","#.2222.#","22222222","1.1..1.1"],
  ["11111111","1######1","1.3333.1","1.3223.1","1#1111#1","22222222"],
- ["22222222","2#2112#2","12#11#21","1#2222#1","11111111"],
+ ["22222222","2#2112#2","12.11.21","1#2222#1","11111111"],
  ["33333333","3#2222#3","22#22#22","2.2222.2","1#1111#1","11111111"]
 ];
 var PU_TYPES=['wide','multi','slow','life','pierce'],PU_W=[24,20,18,8,18];
 function rnd(G){G.seed=(G.seed+0x6D2B79F5)|0;var t=G.seed;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;}
 function clamp(v,a,b){return v<a?a:(v>b?b:v);}
-function levelSpeed(i){return 270+14*i;}
+function levelSpeed(i){return 300+10*i;}
 function newGame(seed,H){
   var G={seed:seed|0,H:H,lv:0,score:0,lives:3,steps:0,t:0,acc:0,state:'ready',ev:[],hook:null,clearT:0,sinceBreak:0,nudgeT:0,
-    paddle:{x:W/2,w:BASE_PW,target:W/2,y:0},balls:[],bricks:[],grid:[],left:0,pus:[],fx:{wide:0,slow:0,pierce:0},speed:270};
+    paddle:{x:W/2,w:BASE_PW,target:W/2,y:0},balls:[],bricks:[],grid:[],left:0,pus:[],fx:{wide:0,slow:0,pierce:0},speed:300,startScore:0,startLives:3};
   newLevel(G,0,H);
   return G;
 }
 function newLevel(G,i,H){
   if(H)G.H=H;
   var lay=LEVELS[i],r,c;
-  G.lv=i;G.bricks=[];G.grid=[];G.left=0;G.speed=levelSpeed(i);
+  G.lv=i;G.bricks=[];G.grid=[];G.left=0;G.speed=levelSpeed(i);G.startScore=G.score;G.startLives=G.lives;
   for(r=0;r<lay.length;r++){
     G.grid.push([]);
     for(c=0;c<COLS;c++){
@@ -120,6 +120,13 @@ function newLevel(G,i,H){
   G.pus=[];G.fx={wide:0,slow:0,pierce:0};G.sinceBreak=0;G.nudgeT=0;
   G.balls=[{x:W/2,y:G.paddle.y-BR,vx:0,vy:0,stuck:true}];
   G.state='ready';G.ev.push({t:'level',lv:i});
+}
+/* 화면 비율이 바뀌었을 때: 판의 세로 길이만 바꾼다(받침대·공·아이템은 아래 기준으로 같이 내려가거나 올라간다) */
+function setHeight(G,H){
+  var dy=H-G.H;if(!dy)return;
+  G.H=H;G.paddle.y+=dy;
+  for(var i=0;i<G.balls.length;i++)G.balls[i].y+=dy;
+  for(var j=0;j<G.pus.length;j++)G.pus[j].y+=dy;
 }
 function launch(G){
   if(G.state!=='ready')return false;
@@ -183,12 +190,62 @@ function moveBall(G,b,h,sp){
       if(G.sinceBreak>6){   // 오래 못 깼으면 받침대 튕김에도 보정을 얹는다(같은 길만 왕복하는 것 방지)
         ang+=(rnd(G)-0.5)*0.6;
         if(G.sinceBreak>10){var tg=nearestTarget(G,b);if(tg)ang=0.4*ang+0.6*Math.atan2(tg.tx-b.x,-(tg.ty-b.y)+1);}
+        if(G.left<=3&&G.sinceBreak>15){var dt2=planAngle(G,b);if(dt2===null)dt2=directAim(G,b);if(dt2!==null)ang=dt2;}   // 마지막 벽돌이 남았는데 오래 못 깼으면: 여러 각도를 미리 굴려 보고 벽돌을 실제로 깨는 각도를 고른다
         ang=clamp(ang,-MAXANG,MAXANG);
       }
       b.vx=sp*Math.sin(ang);b.vy=-sp*Math.cos(ang);
       G.ev.push({t:'paddle'});
+    }else if(b.y>p.y+4){
+      // 윗면 아래로 내려간 공: 받침대 옆면에서 바깥으로 밀어내고 아래로 떨어지게 한다(통과 방지)
+      var sx=b.x<p.x?-1:1,ox=sx<0?left-BR:left+p.w+BR;
+      if(ox>=BR&&ox<=W-BR){b.x=ox;b.vx=sx*Math.max(Math.abs(b.vx),sp*0.3);}
+      else{b.y=p.y+PH+BR;}
+      b.vy=Math.max(Math.abs(b.vy),sp*0.3);
     }
   }
+}
+/* 판의 복사본(공 연습용) */
+function cloneForPlan(G){
+  var C={seed:G.seed,H:G.H,lv:G.lv,score:0,lives:99,steps:0,t:0,acc:0,state:'play',ev:[],hook:null,clearT:0,sinceBreak:0,nudgeT:0,
+    paddle:{x:G.paddle.x,w:G.paddle.w,target:G.paddle.x,y:G.paddle.y},balls:[],bricks:[],grid:[],left:G.left,pus:[],fx:{wide:0,slow:0,pierce:0},speed:G.speed,startScore:0,startLives:3};
+  for(var r=0;r<G.grid.length;r++){
+    C.grid.push([]);
+    for(var c=0;c<COLS;c++){var o=G.grid[r][c],n=null;if(o){n={c:o.c,r:o.r,x:o.x,y:o.y,w:o.w,h:o.h,hp:o.hp,max:o.max,steel:o.steel};C.bricks.push(n);}C.grid[r].push(n);}
+  }
+  return C;
+}
+/* 받침대 튕김 각도 후보 37개를 복사본에서 미리 굴려 보고, 14초 안에 벽돌을 깨는 가장 빠른 각도를 돌려준다(없으면 null) */
+function planAngle(G,b){
+  var sp=spOf(G),best=null,bt=1e9,pass,k;
+  for(pass=0;pass<2&&best===null;pass++){          // 1차: 큰 간격 37개 · 못 찾으면 2차: 촘촘히(좁은 틈 겨냥)
+    var step0=pass===0?0.06:0.015,n=pass===0?18:73,lim=pass===0?1700:1000;
+    for(k=-n;k<=n;k++){
+      var a=k*step0,C=cloneForPlan(G),left0=C.left;
+      C.balls=[{x:b.x,y:G.paddle.y-BR,vx:sp*Math.sin(a),vy:-sp*Math.cos(a),stuck:false}];
+      for(var i=0;i<lim;i++){
+        step(C,STEP);
+        if(C.left<left0){if(C.t<bt){bt=C.t;best=a;}break;}
+        var q=C.balls[0];if(!q||C.state!=='play'||(q.vy>0&&q.y>=C.paddle.y-BR-1))break;
+        if(C.t>=bt)break;
+      }
+    }
+  }
+  return best;
+}
+/* 공에서 곧장(안 깨지는 벽돌·다른 벽돌에 안 막히고) 닿는 가장 가까운 벽돌을 향한 받침대 튕김 각도. 없으면 null */
+function directAim(G,b){
+  var best=null,bd=1e9,j,k;
+  for(j=0;j<G.bricks.length;j++){
+    k=G.bricks[j];if(k.steel)continue;
+    var cx=k.x+k.w/2,cy=k.y+k.h/2,dx=cx-b.x,dy=cy-b.y,d=Math.hypot(dx,dy),n=Math.ceil(d/4),blocked=false,i;
+    for(i=1;i<n&&!blocked;i++){
+      var x=b.x+dx*i/n,y=b.y+dy*i/n,c=Math.floor((x-BX0)/PX),r=Math.floor((y-BY0)/PY);
+      if(r>=0&&r<G.grid.length&&c>=0&&c<COLS){var o=G.grid[r][c];if(o&&o!==k&&x>=o.x&&x<=o.x+o.w&&y>=o.y&&y<=o.y+o.h)blocked=true;}
+    }
+    if(!blocked&&d<bd){bd=d;best=k;}
+  }
+  if(!best)return null;
+  return Math.atan2(best.x+best.w/2-b.x,-(best.y+best.h/2-b.y));
 }
 /* 지금 판에서 공이 닿을 수 있는(바깥과 이어진 빈칸에 붙은) 깨지는 벽돌들 */
 function reachable(G){
@@ -258,7 +315,7 @@ function step(G,dt){
   // 떨어지는 아이템
   for(i=G.pus.length-1;i>=0;i--){
     var u=G.pus[i];u.y+=110*dt;
-    if(u.y>=p.y-8&&u.y<=p.y+PH+8&&Math.abs(u.x-p.x)<=p.w/2+14){G.pus.splice(i,1);applyPU(G,u.type);}
+    if(u.y>=p.y-8&&u.y<=p.y+PH+8&&Math.abs(u.x-p.x)<=p.w/2+20){G.pus.splice(i,1);applyPU(G,u.type);}
     else if(u.y>G.H+20)G.pus.splice(i,1);
   }
   if(!G.balls.length){loseLife(G);return;}
@@ -266,7 +323,7 @@ function step(G,dt){
   G.sinceBreak+=dt;
   if(G.sinceBreak>6){
     G.nudgeT+=dt;
-    if(G.nudgeT>=1.5){
+    if(G.nudgeT>=1.5&&!(G.left<=3&&G.sinceBreak>15)){   // 마지막 벽돌 겨냥 중(미리 굴려 고른 각도)에는 공중에서 흔들지 않는다
       G.nudgeT=0;
       for(i=0;i<G.balls.length;i++){
         var q=G.balls[i];if(q.stuck)continue;
@@ -282,7 +339,11 @@ function advance(G,frameDt){
   G.acc+=Math.min(frameDt,0.1);
   while(G.acc>=STEP-1e-12){step(G,STEP);G.acc-=STEP;}
 }
-function serialize(G,ms){return {v:1,lv:G.lv,score:G.score,lives:G.lives,t:ms|0,moves:[G.lv+1]};}
+/* 저장은 「그 판을 시작할 때의 점수·목숨」 — 이어하면 벽돌이 다시 살아나므로 도중 점수를 남기면 이중으로 쌓인다. 판을 깬 직후(연출 중)면 다음 판 시작 상태 */
+function serialize(G,ms){
+  if(G.state==='clear'&&G.lv+1<LEVELS.length)return {v:1,lv:G.lv+1,score:G.score,lives:G.lives,t:ms|0,moves:[G.lv+2]};
+  return {v:1,lv:G.lv,score:G.startScore,lives:G.startLives,t:ms|0,moves:[G.lv+1]};
+}
 function deserialize(o){
   if(!o||o.v!==1||typeof o.lv!=='number'||o.lv<0||o.lv>=LEVELS.length||typeof o.score!=='number'||o.score<0||typeof o.lives!=='number'||o.lives<1||o.lives>MAXLIVES)return null;
   return {lv:o.lv|0,score:o.score|0,lives:o.lives|0};
@@ -333,19 +394,29 @@ if(calm)document.documentElement.classList.add('calm');
 
 var cv=$('cv'),ctx=cv.getContext('2d'),stage=$('stage');
 var G=null,paused=false,over=false,sc=1,ox=0,oy=0,dpr=1,cssW=0,cssH=0;
-var parts=[],banner={t:0,text:''},shake=0,lastFrame=0,elapsedMs=0,saveT=0,keyDir=0;
+var resumeWait=0,parts=[],banner={t:0,text:''},shake=0,lastFrame=0,elapsedMs=0,saveT=0,keyDir=0;
 var best=lsGet(KEY_BEST)||{score:0,lv:0};
 
 /* ---------- 크기 ---------- */
-function stageH(){var w=stage.clientWidth||360,h=stage.clientHeight||600;return clamp(Math.round(W*h/w),480,700);}
+function stageH(){var w=stage.clientWidth||360,h=stage.clientHeight||600;return clamp(Math.round(W*h/w),400,700);}
 function resize(){
   dpr=Math.min(window.devicePixelRatio||1,3);
   cssW=stage.clientWidth;cssH=stage.clientHeight;
   cv.width=Math.max(1,Math.round(cssW*dpr));cv.height=Math.max(1,Math.round(cssH*dpr));
   if(G){sc=Math.min(cssW/W,cssH/G.H);ox=(cssW-W*sc)/2;oy=(cssH-G.H*sc)/2;}
 }
-window.addEventListener('resize',resize);
-window.addEventListener('orientationchange',function(){setTimeout(resize,120);});
+var rzT=0;
+function onResize(){
+  resize();
+  clearTimeout(rzT);
+  rzT=setTimeout(function(){   // 창 크기가 바뀌면(폰 접기·펼치기, 가로·세로) 판 비율을 다시 맞추고 잠깐 멈춘다
+    if(!G)return;
+    var nh=stageH();
+    if(nh!==G.H){setHeight(G,nh);resize();if(!over)pause();}
+  },160);
+}
+window.addEventListener('resize',onResize);
+window.addEventListener('orientationchange',function(){setTimeout(onResize,120);});
 
 /* ---------- 목숨 그림 ---------- */
 var HEART='<svg viewBox="-12 -12 24 24"><path d="M0 9C-15-2-10-12-4-9-2-8 0-6 0-4 0-6 2-8 4-9 10-12 15-2 0 9Z" fill="#d8392c" stroke="#8c1d14" stroke-width="1.4"/></svg>';
@@ -359,9 +430,9 @@ function save(){
   if(!G||over){return;}
   lsSet(KEY_GAME,serialize(G,elapsedMs));
 }
-function saveBest(){
+function saveBest(withScore){   // 점수는 판을 깼을 때·끝났을 때만 올린다(이어하면 점수가 판 시작 값으로 돌아가므로 도중 점수로는 올리지 않는다)
   var b=best,ch=false;
-  if(G.score>b.score){b.score=G.score;ch=true;}
+  if(withScore&&G.score>b.score){b.score=G.score;ch=true;}
   if(G.lv+1>b.lv){b.lv=G.lv+1;ch=true;}
   if(ch)lsSet(KEY_BEST,b);
 }
@@ -375,7 +446,7 @@ function startGame(resume){
   resize();hud();save();
 }
 function showEnd(won){
-  over=true;saveBest();lsDel(KEY_GAME);
+  over=true;saveBest(true);lsDel(KEY_GAME);
   var b=$('endBox');
   b.innerHTML='<h2>'+(won?'모든 판을 깼습니다':'게임 끝')+'</h2><p>점수 '+G.score+'<br>도달한 판 '+(G.lv+1)+'판<br>최고 점수 '+best.score+' · 가장 먼 판 '+best.lv+'판</p><button class="act" id="bAgain" type="button">다시 하기</button>';
   b.hidden=false;$('bAgain').onclick=function(){lsDel(KEY_GAME);startGame(null);};
@@ -384,15 +455,16 @@ function showEnd(won){
 /* ---------- 멈춤 ---------- */
 function pause(){
   if(!G||over||paused)return false;
-  paused=true;save();saveBest();
+  paused=true;save();saveBest(false);
   $('pauseMsg').innerHTML='점수 '+G.score+' · '+(G.lv+1)+'판<br>최고 점수 '+best.score+' · 가장 먼 판 '+best.lv+'판';
   $('pauseBox').hidden=false;return true;
 }
-function resume(){if(!paused)return;paused=false;$('pauseBox').hidden=true;lastFrame=performance.now();}
+function resume(){if(!paused)return;paused=false;$('pauseBox').hidden=true;lastFrame=performance.now();resumeWait=calm?0.3:1;}
 $('bPause').addEventListener('click',function(){paused?resume():pause();});
 $('bResume').addEventListener('click',resume);
 document.addEventListener('visibilitychange',function(){if(document.hidden)pause();else lastFrame=performance.now();});
 window.addEventListener('pagehide',function(){pause();save();});
+window.addEventListener('blur',function(){pause();});
 window.__gameBack=function(){if(over)return false;if(!paused){pause();return true;}return false;};
 
 /* ---------- 손가락 ---------- */
@@ -400,7 +472,7 @@ var drag=null;
 stage.addEventListener('contextmenu',function(e){e.preventDefault();});
 stage.addEventListener('pointerdown',function(e){
   if(e.target.closest&&e.target.closest('.box'))return;
-  if(!G||paused||over)return;
+  if(!G||paused||over||resumeWait>0)return;
   e.preventDefault();
   drag={id:e.pointerId,x:e.clientX,mouse:e.pointerType==='mouse'};
   try{stage.setPointerCapture(e.pointerId);}catch(er){}
@@ -443,7 +515,12 @@ function drawPU(type,x,y){
   else if(type==='multi'){[-7,0,7].forEach(function(dx){ctx.beginPath();ctx.arc(dx,dx===0?-2.5:2,2.6,0,6.3);ctx.fill();});}
   else if(type==='slow'){ctx.beginPath();ctx.moveTo(-4.5,-5.5);ctx.lineTo(4.5,-5.5);ctx.lineTo(0,0);ctx.closePath();ctx.moveTo(-4.5,5.5);ctx.lineTo(4.5,5.5);ctx.lineTo(0,0);ctx.closePath();ctx.fill();}
   else if(type==='life'){ctx.scale(.52,.52);ctx.beginPath();ctx.moveTo(0,9);ctx.bezierCurveTo(-15,-2,-10,-12,-4,-9);ctx.bezierCurveTo(-2,-8,0,-6,0,-4);ctx.bezierCurveTo(0,-6,2,-8,4,-9);ctx.bezierCurveTo(10,-12,15,-2,0,9);ctx.fill();}
-  else if(type==='pierce'){ctx.beginPath();ctx.moveTo(0,5.5);ctx.lineTo(0,-5.5);ctx.moveTo(-3.8,-1.8);ctx.lineTo(0,-5.8);ctx.lineTo(3.8,-1.8);ctx.stroke();ctx.beginPath();ctx.moveTo(-8,2.5);ctx.lineTo(8,2.5);ctx.stroke();}
+  else if(type==='pierce'){   // 벽돌 하나를 공이 꿰뚫고 지나가는 모양
+    ctx.fillStyle='rgba(255,255,255,.5)';rr(-5.5,-5,11,10,1.5);ctx.fill();
+    ctx.strokeStyle='#fff';ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(-13,0);ctx.lineTo(-2,0);ctx.stroke();
+    ctx.setLineDash([1.6,1.8]);ctx.beginPath();ctx.moveTo(-2,0);ctx.lineTo(4,0);ctx.stroke();ctx.setLineDash([]);
+    ctx.beginPath();ctx.arc(8.5,0,3.4,0,6.283);ctx.fillStyle='#fff';ctx.fill();ctx.strokeStyle='#5a35b8';ctx.lineWidth=1.2;ctx.stroke();
+  }
   ctx.restore();
 }
 function spawnParts(x,y,col){
@@ -465,7 +542,7 @@ function draw(dtReal){
   var slide=(!calm&&G.t<0.45&&G.state!=='clear')?(0.45-G.t)/0.45*60:0;
   for(var i=0;i<G.bricks.length;i++)drawBrick(G.bricks[i],slide);
   // 아이템
-  for(i=0;i<G.pus.length;i++)drawPU(G.pus[i].type,G.pus[i].x,G.pus[i].y);
+  for(i=0;i<G.pus.length;i++){ctx.save();ctx.translate(G.pus[i].x,G.pus[i].y);ctx.scale(1.45,1.45);drawPU(G.pus[i].type,0,0);ctx.restore();}
   // 받침대
   var p=G.paddle,pl=p.x-p.w/2;
   if(G.fx.wide>0){ctx.shadowColor='#e3b04b';ctx.shadowBlur=14;}
@@ -475,8 +552,9 @@ function draw(dtReal){
   for(i=0;i<G.balls.length;i++){
     var b=G.balls[i];
     if(G.fx.pierce>0){ctx.shadowColor='#9b6cf0';ctx.shadowBlur=14;}
+    ctx.globalAlpha=(resumeWait>0&&Math.floor(resumeWait*8)%2)?0.2:1;
     var bg=ctx.createRadialGradient(b.x-2,b.y-2,1,b.x,b.y,BR+1);bg.addColorStop(0,'#fffdf2');bg.addColorStop(1,G.fx.pierce>0?'#b99aff':'#e8c46a');
-    ctx.beginPath();ctx.arc(b.x,b.y,BR,0,6.283);ctx.fillStyle=bg;ctx.fill();ctx.shadowBlur=0;
+    ctx.beginPath();ctx.arc(b.x,b.y,BR,0,6.283);ctx.fillStyle=bg;ctx.fill();ctx.shadowBlur=0;ctx.globalAlpha=1;
   }
   // 조각
   for(i=parts.length-1;i>=0;i--){
@@ -485,6 +563,7 @@ function draw(dtReal){
     ctx.globalAlpha=1-q.t/q.life;ctx.fillStyle=q.col;ctx.fillRect(q.x-2,q.y-2,4,4);
   }
   ctx.globalAlpha=1;
+  drawFxBars();
   // 안내 글
   ctx.textAlign='center';ctx.font='800 22px '+getComputedStyle(document.body).fontFamily;
   if(banner.t>0){ctx.globalAlpha=Math.min(1,banner.t*2);ctx.fillStyle='#f3e9d8';ctx.fillText(banner.text,W/2,G.H*0.52);ctx.globalAlpha=1;}
@@ -495,12 +574,17 @@ function draw(dtReal){
   if(G.state==='clear'){ctx.font='900 30px '+getComputedStyle(document.body).fontFamily;ctx.fillStyle='#e3b04b';ctx.fillText('판을 깼습니다',W/2,G.H*0.45);
     ctx.font='700 15px '+getComputedStyle(document.body).fontFamily;ctx.fillStyle='#f3e9d8';ctx.fillText('보너스 +'+(100*(G.lv+1)),W/2,G.H*0.45+26);}
   ctx.restore();
-  // 효과 남은 시간 띠
-  var fxs=[['wide','wide'],['slow','slow'],['pierce','pierce']],ix=0;
-  for(var f=0;f<fxs.length;f++){var tm=G.fx[fxs[f][0]];if(tm>0){ctx.setTransform(dpr,0,0,dpr,0,0);var bx=ox+8+ix*34,by=oy+G.H*sc-10;drawFxIcon(fxs[f][1],bx+14,by-9,tm);ix++;}}
 }
-function drawFxIcon(type,x,y,tm){
-  ctx.save();ctx.scale(sc*0.75,sc*0.75);drawPU(type,x/(sc*0.75),y/(sc*0.75));ctx.restore();
+var FXT={wide:12,slow:10,pierce:8};
+function drawFxBars(){
+  var ix=0,y=G.H-14;
+  for(var k in FXT){
+    var tm=G.fx[k];if(!(tm>0))continue;
+    var x=8+ix*114;ctx.save();ctx.translate(x+16,y);drawPU(k,0,0);ctx.restore();
+    rr(x+36,y-4,64,8,4);ctx.fillStyle='rgba(243,233,216,.16)';ctx.fill();
+    var wv=Math.max(2,64*tm/FXT[k]);rr(x+36,y-4,wv,8,4);ctx.fillStyle=PUC[k];ctx.fill();
+    ix++;
+  }
 }
 
 /* ---------- 이벤트 처리·반복 ---------- */
@@ -511,7 +595,7 @@ function drain(){
     if(e.t==='break'){spawnParts(e.x,e.y,e.max===3?'#d94a3c':(e.max===2?'#ec8a3c':'#f4cc6c'));hud();}
     else if(e.t==='hit'){spawnParts(e.x,e.y,'#f3e9d8');}
     else if(e.t==='lose'){shake=.5;hud();save();}
-    else if(e.t==='clear'){hud();saveBest();for(var k=0;k<5;k++)spawnParts(60+k*60,G.H*0.4,'#e3b04b');}
+    else if(e.t==='clear'){hud();saveBest(true);save();for(var k=0;k<5;k++)spawnParts(60+k*60,G.H*0.4,'#e3b04b');}
     else if(e.t==='level'){banner={t:calm?1.2:1.6,text:(e.lv+1)+'판'};hud();save();}
     else if(e.t==='pu'){hud();}
     else if(e.t==='won'){showEnd(true);}
@@ -520,8 +604,10 @@ function drain(){
 }
 function loop(now){
   requestAnimationFrame(loop);
-  var dt=Math.min((now-lastFrame)/1000,0.1);lastFrame=now;if(!(dt>0))dt=0;
-  if(G&&!paused&&!over){
+  var raw=(now-lastFrame)/1000;lastFrame=now;var dt=Math.min(raw,0.1);if(!(dt>0))dt=0;
+  if(raw>0.5&&G&&!paused&&!over){pause();dt=0;}   // 한동안 화면이 안 그려졌다 돌아오면(숨겨졌다 나타남) 시간이 한꺼번에 흐르지 않게 멈추고 건너뛴다
+  if(resumeWait>0&&!paused)resumeWait=Math.max(0,resumeWait-dt);
+  else if(G&&!paused&&!over){
     if(keyDir&&G.state!=='clear')G.paddle.target=clamp(G.paddle.target+keyDir*520*dt,0,W);
     advance(G,dt);drain();
     elapsedMs+=dt*1000;saveT+=dt;if(saveT>5){saveT=0;save();}
@@ -535,8 +621,8 @@ function loop(now){
 resize();
 var sv=deserialize(lsGet(KEY_GAME));
 startGame(sv);
-if(sv)banner.text=(G.lv+1)+'판 · 이어서 합니다';
-window.__bricks={get G(){return G;},get paused(){return paused;},pause:pause,resume:resume,startGame:startGame,launch:function(){return launch(G);},resize:resize,get over(){return over;}};
+if(sv&&(sv.lv>0||sv.score>0||sv.lives<3))banner.text=(G.lv+1)+'판 · 이어서 합니다';
+window.__bricks={get G(){return G;},get paused(){return paused;},get resumeWait(){return resumeWait;},pause:pause,resume:resume,startGame:startGame,launch:function(){return launch(G);},resize:resize,get over(){return over;}};
 lastFrame=performance.now();requestAnimationFrame(loop);
 })();
 </script>
