@@ -483,7 +483,7 @@ function startGame(resume){
   if(resume){G.lv=resume.lv;G.score=resume.score;G.lives=resume.lives;G.ev=[];newLevel(G,resume.lv);}
   G.ev=[];over=false;parts=[];elapsedMs=0;paused=false;
   $('endBox').hidden=true;$('pauseBox').hidden=true;
-  banner={t:calm?1.2:1.6,text:(G.lv+1)+'판',sub:SUBS[G.lv]||''};
+  banner={t:(SUBS[G.lv]?2.6:(calm?1.2:1.6)),text:(G.lv+1)+'판',sub:SUBS[G.lv]||''};
   resize();hud();save();
 }
 function showEnd(won){
@@ -525,7 +525,7 @@ stage.addEventListener('pointerdown',function(e){
   drag={id:e.pointerId,x:e.clientX,mouse:e.pointerType==='mouse'};
   try{stage.setPointerCapture(e.pointerId);}catch(er){}
   if(drag.mouse)G.paddle.target=(e.clientX-stage.getBoundingClientRect().left-ox)/sc;
-  if(G.state==='ready'){launch(G);if(banner.t>0.3)banner.t=0.3;}
+  if(G.state==='ready'){launch(G);var mt=banner.sub?1.9:0.3;if(banner.t>mt)banner.t=mt;}
 });
 stage.addEventListener('pointermove',function(e){
   if(!G||paused||over)return;
@@ -573,8 +573,10 @@ function drawMoveMarks(slide){
   var warn=G.shT>SHIFT_T-0.7&&G.state==='play';
   for(var rs in G.mv){
     var d=G.mv[rs],y=BY0+(+rs)*PY+BH/2-slide;
-    ctx.fillStyle=warn?'rgba(255,214,120,'+(0.6+0.4*Math.sin(G.t*22))+')':'rgba(227,176,75,.5)';
-    [4,W-4].forEach(function(x){ctx.beginPath();ctx.moveTo(x+d*3,y);ctx.lineTo(x-d*3,y-5);ctx.lineTo(x-d*3,y+5);ctx.closePath();ctx.fill();});
+    ctx.fillStyle='rgba(255,200,90,'+(warn?0.16:0.08)+')';ctx.fillRect(0,y-BH/2-1,W,BH+2);   // 줄 뒤 옅은 띠
+    ctx.fillStyle=warn?'rgba(255,236,160,'+(0.8+0.2*Math.sin(G.t*22))+')':'#ffc84a';
+    ctx.strokeStyle='#1c1208';ctx.lineWidth=1.2;
+    [6,W-6].forEach(function(x){ctx.beginPath();ctx.moveTo(x+d*5,y);ctx.lineTo(x-d*5,y-9);ctx.lineTo(x-d*5,y+9);ctx.closePath();ctx.fill();ctx.stroke();});
   }
 }
 var PUC={wide:'#e3b04b',multi:'#4fbf7a',slow:'#4f9cf0',life:'#e0483c',pierce:'#9b6cf0'};
@@ -669,7 +671,7 @@ function drain(){
     else if(e.t==='hit'){spawnParts(e.x,e.y,'#f3e9d8');}
     else if(e.t==='lose'){shake=.5;hud();save();}
     else if(e.t==='clear'){hud();saveBest(true);save();for(var k=0;k<5;k++)spawnParts(60+k*60,G.H*0.4,'#e3b04b');}
-    else if(e.t==='level'){banner={t:calm?1.2:1.6,text:(e.lv+1)+'판',sub:SUBS[e.lv]||''};hud();save();}
+    else if(e.t==='level'){banner={t:(SUBS[e.lv]?2.6:(calm?1.2:1.6)),text:(e.lv+1)+'판',sub:SUBS[e.lv]||''};hud();save();}
     else if(e.t==='pu'){hud();}
     else if(e.t==='won'){showEnd(true);}
   }
