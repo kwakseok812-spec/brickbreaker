@@ -140,19 +140,19 @@ var LEVELS=[
  /* 25~36판 (2026-11-20 추가): 25판 열쇠(K)·자물쇠(D) · 27판 순간이동 문(p-q · r-s 짝, 빈칸에 놓임) · 30·36판 큰 판 */
  ["33333333","2DDDDDD2","2D3333D2","2DDDDDD2","3K3333K3"],
  ["33333333","3DDBBDD3","3D3223D3","3BDDDDB3","3K3333K3"],
- ["333q3333","33333333","#######.","22222p22"],
+ ["333q3333","22222222","#####...","22222p22"],
  ["3B3333Bq","22222222","3#3333#3","p.2BB2.3","22222222"],
  ["3333q333","3DDDDDD3","3D3BB3D3","3DDDDDD3","#K3333K#","11111p11"],
- ["#3B33B3#","33333333","3K#33#K3","3DDDDDD3","3D2BB2D3","3DDDDDD3","#3333333"],
+ ["#3B33B3#","33333333","3K#33#K3","3DDDDDD3","3D2BB2D3","3DDDDDD3","3333333."],
  ["3K3333K3","33DDDD33","3D2222D3","3333333.","B2B22B2B"],
- ["q3K33K3s","3BB33BB3","3#3DD3#3","p3D22D3r","3#3DD3#3","3333333."],
+ ["q3K33K3s","3BB33BB3","3#3DD3#3","p3D22D3r","3#3DD3#3","33333333","3333333."],
  ["3K3333K3","3#BBBB#3","3DDDDDD3","3D3q23D3","3DDDDDD3","22222222","1p111111"],
- ["3B3333B3","K3#33#3K","3DDDDDD3","3D3BB3D3","3DDDDDD3","3#3333#3","3333333."],
- ["33K33K3p","3B3333B3","3DDDDDD3","3D2BB2D3","3DDDDDD3","q#3333#3","3333333."],
- ["3B3q33B3","33#33#33","3K3333K3","3DDDDDD3","3D3BB3D3","3DDDDDD3","p3333333","33333333","3333333."]
+ ["3B3333B3","K3#33#3K","3DDDDDD3","3D3BB3D3","3DDDDDD3","33333333","3#3333#3","3333333."],
+ ["33K33K3p","3B3333B3","3DDDDDD3","3D2BB2D3","3DDDDDD3","q#3333#3","33333333","3333333."],
+ ["3B3333B3","33#33#33","3K3q33K3","3DDDDDD3","3D3BB3D3","3DDDDDD3","p3333333","33333333","3333333."]
 ];
 /* 옆으로 밀리는 줄: 판 번호(0부터) → {줄:방향(1=오른쪽,-1=왼쪽)}. 줄 안 벽돌이 SHIFT_T 초마다 한 칸씩 밀리고 끝에서 반대편으로 돌아 나온다 */
-var MOVES={14:{1:1},15:{2:-1},16:{4:-1},17:{2:1,4:-1},19:{4:1,5:-1},20:{5:1},21:{3:1,4:-1},22:{5:-1,6:1},23:{2:1,5:-1},29:{1:1},30:{3:1},31:{5:-1},33:{5:1,6:-1},34:{6:1},35:{1:1,2:-1}};
+var MOVES={14:{1:1},15:{2:-1},16:{4:-1},17:{2:1,4:-1},19:{4:1,5:-1},20:{5:1},21:{3:1,4:-1},22:{5:-1,6:1},23:{2:1,5:-1},29:{1:1},30:{4:1},31:{6:-1},33:{6:1,7:-1},34:{7:1},35:{0:1,1:-1,8:1}};
 var SHIFT_T=2.4;
 var PU_TYPES=['wide','multi','slow','life','pierce'],PU_W=[24,20,18,8,18];
 function rnd(G){G.seed=(G.seed+0x6D2B79F5)|0;var t=G.seed;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;}
@@ -217,7 +217,7 @@ function dropPU(G,b){
 }
 function damage(G,b,all){
   if(b.steel)return;
-  b.hp=all?0:b.hp-1;G.sinceBreak=0;
+  b.hp=all?0:b.hp-1;G.sinceBreak=0;G.aimN=0;
   if(b.hp<=0){
     G.grid[b.r][b.c]=null;var ix=G.bricks.indexOf(b);if(ix>=0)G.bricks.splice(ix,1);G.left--;
     G.score+=10*b.max;G.ev.push({t:'break',x:b.x+b.w/2,y:b.y+b.h/2,max:b.max});dropPU(G,b);
@@ -265,6 +265,11 @@ function moveBall(G,b,h,sp){
     var dot=b.vx*nx+b.vy*ny;
     if(dot<0){b.vx-=2*dot*nx;b.vy-=2*dot*ny;fixVel(b,sp);damage(G,k,false);}
   }
+  // 안전장치: 밀리는 줄 때문에 공 중심이 안 깨지는 벽돌 안으로 들어갔으면 그 벽돌 위로 꺼낸다(닫힌 방에 갇히는 것 방지)
+  for(i=Math.max(0,r0);i<=Math.min(G.grid.length-1,r1);i++)for(j=Math.max(0,c0);j<=Math.min(COLS-1,c1);j++){
+    var sk=G.grid[i][j];
+    if(sk&&sk.steel&&b.x>sk.x&&b.x<sk.x+sk.w&&b.y>sk.y&&b.y<sk.y+sk.h){b.y=sk.y-BR-0.5;if(b.vy>0)b.vy=-b.vy;}
+  }
   // 받침대
   var p=G.paddle,left=p.x-p.w/2;
   var qx=clamp(b.x,left,left+p.w),qy=clamp(b.y,p.y,p.y+PH),ex=b.x-qx,ey=b.y-qy;
@@ -275,11 +280,11 @@ function moveBall(G,b,h,sp){
       if(G.sinceBreak>6){   // 오래 못 깼으면 받침대 튕김에도 보정을 얹는다(같은 길만 왕복하는 것 방지)
         ang+=(rnd(G)-0.5)*0.6;
         if(G.sinceBreak>10){var tg=nearestTarget(G,b);if(tg)ang=0.4*ang+0.6*Math.atan2(tg.tx-b.x,-(tg.ty-b.y)+1);}
-        if(G.left<=3&&G.sinceBreak>15){var dt2=planAngle(G,b);if(dt2===null)dt2=directAim(G,b);if(dt2!==null)ang=dt2;}   // 마지막 벽돌이 남았는데 오래 못 깼으면: 여러 각도를 미리 굴려 보고 벽돌을 실제로 깨는 각도를 고른다
+        if(G.left<=3&&G.sinceBreak>15){var dt2=planAngle(G,b);if(dt2===null)dt2=directAim(G,b);if(dt2!==null){G.aimN=(G.aimN|0)+1;if(G.aimN>2)dt2+=(rnd(G)-0.5)*0.04*Math.min(G.aimN,8);ang=dt2;}}   // 마지막 벽돌이 남았는데 오래 못 깼으면: 여러 각도를 미리 굴려 보고 벽돌을 실제로 깨는 각도를 고른다
         ang=clamp(ang,-MAXANG,MAXANG);
       }
       b.vx=sp*Math.sin(ang);b.vy=-sp*Math.cos(ang);
-      G.ev.push({t:'paddle'});
+      G.ev.push({t:'paddle'});G.sincePad=0;
     }else if(b.y>p.y+4){
       // 윗면 아래로 내려간 공: 받침대 옆면에서 바깥으로 밀어내고 아래로 떨어지게 한다(통과 방지)
       var sx=b.x<p.x?-1:1,ox=sx<0?left-BR:left+p.w+BR;
@@ -419,10 +424,10 @@ function step(G,dt){
   }
   if(!G.balls.length){loseLife(G);return;}
   // 갇힘 방지: 오래 못 깨면 각도를 살짝 흔든다
-  G.sinceBreak+=dt;
+  G.sinceBreak+=dt;G.sincePad=(G.sincePad||0)+dt;
   if(G.sinceBreak>6){
     G.nudgeT+=dt;
-    if(G.nudgeT>=1.5&&!(G.left<=3&&G.sinceBreak>15)){   // 마지막 벽돌 겨냥 중(미리 굴려 고른 각도)에는 공중에서 흔들지 않는다
+    if(G.nudgeT>=1.5&&!(G.left<=3&&G.sinceBreak>15&&G.sincePad<8)){   // 마지막 벽돌 겨냥 중(미리 굴려 고른 각도)에는 공중에서 흔들지 않는다
       G.nudgeT=0;
       for(i=0;i<G.balls.length;i++){
         var q=G.balls[i];if(q.stuck)continue;
@@ -451,7 +456,7 @@ function deserialize(o){
 function tierOf(i){return Math.min(5,Math.floor(i/6));}   // i: 0부터. 6판마다 색 단계(1~6 금 · 7~12 주황 · 13~18 빨강 · 19~24 보라 · 25~30 청록 · 31~36 남색)
 function reachOf(bestLv,curLv){var r=Math.max(bestLv|0,(curLv|0)+1,1);return Math.min(r,LEVELS.length);}
 function canStartAt(bestLv,curLv,n){return n>=1&&n<=LEVELS.length&&n===(n|0)&&n<=reachOf(bestLv,curLv);}
-function mergeBest(b,score,lvNum,withScore){var o={score:(b&&b.score)|0,lv:(b&&b.lv)|0};if(withScore&&score>o.score)o.score=score|0;if(lvNum>o.lv)o.lv=lvNum|0;return o;}
+function mergeBest(b,score,lvNum,withScore){var o={score:(b&&b.score)|0,lv:(b&&b.lv)|0,m:(b&&b.m)|0};if(withScore&&score>o.score)o.score=score|0;if(lvNum>o.lv)o.lv=lvNum|0;return o;}
 function pickStart(n){return {lv:n-1,score:0,lives:3};}
 function progressOf(G){if(!G)return false;if(G.score>0||G.lives<3||G.state==='clear')return true;if(G.left<G.left0)return true;for(var i=0;i<G.bricks.length;i++){var k=G.bricks[i];if(!k.steel&&k.hp<k.max)return true;}return false;}
 /* 모든 판이 깨질 수 있는 배치인지: 바깥(위·아래)과 이어진 빈칸에 닿은 깨지는 벽돌부터 차례로 깨 본다 */
@@ -502,6 +507,7 @@ var cv=$('cv'),ctx=cv.getContext('2d'),stage=$('stage');
 var G=null,paused=false,over=false,sc=1,ox=0,oy=0,dpr=1,cssW=0,cssH=0;
 var resumeWait=0,parts=[],banner={t:0,text:''},shake=0,lastFrame=0,elapsedMs=0,saveT=0,keyDir=0;
 var best=lsGet(KEY_BEST)||{score:0,lv:0};
+if(!best.m){best.m=1;if(best.lv===24)best.lv=25;lsSet(KEY_BEST,best);}   // 옛 저장: 24판이 옛 마지막 판이었으니 24판을 다 깬 것으로 보고 25판까지 열어 준다(한 번만)
 var SUBS={12:'불꽃 벽돌: 터지면 둘레도 함께 맞습니다',14:'화살표 줄은 옆으로 밀립니다',24:'열쇠를 깨면 자물쇠가 열립니다',26:'문에 들어간 공은 짝 문으로 나옵니다'};
 var ICONS={24:'key',26:'portal'};   // 새 장치 첫 등장 판: 글 위에 그림 한 줄   // 새 요소가 처음 나오는 판에서만 한 줄
 
@@ -541,7 +547,7 @@ function save(){
 }
 function saveBest(withScore){   // 점수는 판을 깼을 때·끝났을 때만 올린다(이어하면 점수가 판 시작 값으로 돌아가므로 도중 점수로는 올리지 않는다)
   var nb=mergeBest(best,G.score,G.lv+1,withScore);   // 기록은 늘기만 한다(낮은 판을 골라 시작해도 줄지 않음)
-  if(nb.score!==best.score||nb.lv!==best.lv){best=nb;lsSet(KEY_BEST,best);}
+  if(nb.score!==best.score||nb.lv!==best.lv||nb.m!==best.m){best=nb;lsSet(KEY_BEST,best);}
 }
 function startGame(resume){
   var H=stageH();
